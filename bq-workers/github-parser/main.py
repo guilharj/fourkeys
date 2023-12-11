@@ -45,18 +45,15 @@ def index():
 
     try:
         attr = msg["attributes"]
-
         # Header Event info
         if "headers" in attr:
             headers = json.loads(attr["headers"])
-
             # Process Github Events
             if "X-Github-Event" in headers:
                 event = process_github_event(headers, msg)
-
         shared.insert_row_into_bigquery(event)
-
     except Exception as e:
+        print("QUAL ERRO", e)
         entry = {
                 "severity": "WARNING",
                 "msg": "Data not saved to BigQuery",
@@ -85,58 +82,57 @@ def process_github_event(headers, msg):
         raise Exception("Unsupported GitHub event: '%s'" % event_type)
 
     metadata = json.loads(base64.b64decode(msg["data"]).decode("utf-8").strip())
-
     if event_type == "push":
-        time_created = metadata["head_commit"]["timestamp"]
-        e_id = metadata["head_commit"]["id"]
+        time_created = metadata["created_at"]
+        e_id = metadata["payload"]["head"]
 
     if event_type == "pull_request":
-        time_created = metadata["pull_request"]["updated_at"]
-        e_id = metadata["repository"]["name"] + "/" + str(metadata["number"])
-
+        time_created = metadata["payload"]["pull_request"]["updated_at"]
+        e_id = metadata["repo"]["name"] + "/" + str(metadata["payload"]["number"])
     if event_type == "pull_request_review":
-        time_created = metadata["review"]["submitted_at"]
-        e_id = metadata["review"]["id"]
+        time_created = metadata["payload"]["review"]["submitted_at"]
+        e_id = metadata["payload"]["review"]["id"]
 
     if event_type == "pull_request_review_comment":
-        time_created = metadata["comment"]["updated_at"]
-        e_id = metadata["comment"]["id"]
+        time_created = metadata["payload"]["comment"]["updated_at"]
+        e_id = metadata["payload"]["comment"]["id"]
 
     if event_type == "issues":
-        time_created = metadata["issue"]["updated_at"]
-        e_id = metadata["repository"]["name"] + "/" + str(metadata["issue"]["number"])
+        time_created = metadata["payload"]["issue"]["updated_at"]
+        e_id = metadata["repo"]["name"] + "/" + str(metadata["issue"]["number"])
 
     if event_type == "issue_comment":
-        time_created = metadata["comment"]["updated_at"]
-        e_id = metadata["comment"]["id"]
+        time_created = metadata["payload"]["comment"]["updated_at"]
+        e_id = metadata["payload"]["comment"]["id"]
 
     if event_type == "check_run":
-        time_created = (metadata["check_run"]["completed_at"] or
-                        metadata["check_run"]["started_at"])
+        time_created = (metadata["payload"]["check_run"]["completed_at"] or
+                        metadata["payload"]["check_run"]["started_at"])
         e_id = metadata["check_run"]["id"]
 
     if event_type == "check_suite":
-        time_created = (metadata["check_suite"]["updated_at"] or
-                        metadata["check_suite"]["created_at"])
+        time_created = (metadata["payload"]["check_suite"]["updated_at"] or
+                        metadata["payload"]["check_suite"]["created_at"])
         e_id = metadata["check_suite"]["id"]
 
     if event_type == "deployment_status":
-        time_created = metadata["deployment_status"]["updated_at"]
-        e_id = metadata["deployment_status"]["id"]
+        time_created = metadata["payload"]["deployment_status"]["updated_at"]
+        e_id = metadata["payload"]["deployment_status"]["id"]
 
     if event_type == "status":
-        time_created = metadata["updated_at"]
+        time_created = metadata["payload"]["updated_at"]
         e_id = metadata["id"]
 
     if event_type == "release":
-        time_created = (metadata["release"]["published_at"] or
-                        metadata["release"]["created_at"])
-        e_id = metadata["release"]["id"]
+        time_created = (metadata["payload"]["release"]["published_at"] or
+                        metadata["payload"]["release"]["created_at"])
+        e_id = metadata["payload"]["release"]["id"]
 
+    metadata["payload"]["repo_name"] = metadata["repo_name"]
     github_event = {
         "event_type": event_type,
         "id": e_id,
-        "metadata": json.dumps(metadata),
+        "metadata": json.dumps(metadata["payload"]),
         "time_created": time_created,
         "signature": signature,
         "msg_id": msg["message_id"],

@@ -33,24 +33,32 @@ def index():
     checks if the signature is verified, and then sends the data to Pub/Sub.
     """
 
+    print(request.headers)
     # Check if the source is authorized
     source = sources.get_source(request.headers)
 
+    print("SOURCE", source) 
     if source not in sources.AUTHORIZED_SOURCES:
         abort(403, f"Source not authorized: {source}")
 
+    print("PASSOU SOURCE")
     auth_source = sources.AUTHORIZED_SOURCES[source]
     signature_sources = {**request.headers, **request.args}
     signature = signature_sources.get(auth_source.signature, None)
 
+    print("SIGNATURE",signature)
     if not signature:
         abort(403, "Signature not found in request headers")
 
+    
     body = request.data
 
     # Verify the signature
     verify_signature = auth_source.verification
+
+    print("VERFICATION", verify_signature)
     if not verify_signature(signature, body):
+        print("ABORT", verify_signature(signature,body)) 
         abort(403, "Signature does not match expected signature")
 
     # Remove the Auth header so we do not publish it to Pub/Sub
@@ -71,6 +79,7 @@ def publish_to_pubsub(source, msg, headers):
     Publishes the message to Cloud Pub/Sub
     """
     try:
+        print("STARTPUBLISH") 
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(PROJECT_NAME, source)
         print(topic_path)
@@ -87,6 +96,7 @@ def publish_to_pubsub(source, msg, headers):
         print(f"Published message: {future.result()}")
 
     except Exception as e:
+        print("QUE FOI>???", e)
         # Log any exceptions to stackdriver
         entry = dict(severity="WARNING", message=e)
         print(entry)

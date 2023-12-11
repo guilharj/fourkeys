@@ -1,0 +1,1 @@
+gcloud builds submit bq-workers --config=bq-workers/parsers.cloudbuild.yaml --project $PROJECT_ID --substitutions=_SERVICE=github && gcloud run deploy fourkeys-github-parser --image=gcr.io/bt-ame-poc/github-parser --set-env-vars=PROJECT_NAME=bt-ame-poc --region=us-central1 --project=bt-ame-poc  && gcloud run services update-traffic fourkeys-github-parser --to-latest
