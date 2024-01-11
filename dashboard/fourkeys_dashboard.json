@@ -24,7 +24,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 2,
-  "id": 2,
+  "id": 1,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -267,55 +267,45 @@
         "type": "grafana-bigquery-datasource",
         "uid": "P8042CABD7873BED6"
       },
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 50,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
+          "mappings": [
+            {
+              "options": {
+                "One day": {
+                  "color": "purple",
+                  "index": 0
+                },
+                "One month": {
+                  "color": "yellow",
+                  "index": 2
+                },
+                "One week": {
+                  "color": "green",
+                  "index": 1
+                },
+                "One year": {
+                  "color": "red",
+                  "index": 4
+                },
+                "Six months": {
+                  "color": "red",
+                  "index": 3
+                }
+              },
+              "type": "value"
             }
-          },
-          "mappings": [],
-          "min": 0,
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           }
@@ -323,24 +313,28 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 10,
-        "w": 9,
+        "h": 5,
+        "w": 4,
         "x": 13,
         "y": 1
       },
-      "id": 9,
+      "id": 12,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^lead_time_to_change$/",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "10.2.2",
       "targets": [
         {
           "datasource": {
@@ -352,7 +346,7 @@
           "location": "US",
           "project": "gglobo-deployment-frq-hdg-prd",
           "rawQuery": true,
-          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\nSELECT\nTIMESTAMP_TRUNC(time_created, DAY) AS day,\nCOUNT(distinct deploy_id) AS deployments\nFROM\nfour_keys.deployments\nWHERE   \n  (\"$repoFilter\" = my_string OR repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR squads IN ($squads))\n\nGROUP BY day\nORDER BY day",
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\nSELECT \n CASE\n  WHEN median_time_to_change < 24 * 60 then \"One day\"\n  WHEN median_time_to_change < 168 * 60 then \"One week\"\n  WHEN median_time_to_change < 730 * 60 then \"One month\"\n  WHEN median_time_to_change < 730 * 6 * 60 then \"Six months\"\n  ELSE \"One year\"\n END as lead_time_to_change\nFROM (\n SElECT\n  IFNULL(ANY_VALUE(med_time_to_change), 0) AS median_time_to_change\n FROM (\n   SELECT\n   PERCENTILE_CONT(\n    IF(TIMESTAMP_DIFF(d.time_created, c.time_created, MINUTE) > 0, TIMESTAMP_DIFF(d.time_created, c.time_created, MINUTE), NULL), # Ignore automated pushes\n    0.5) # Median\n    OVER () AS med_time_to_change, # Minutes\n  FROM four_keys.deployments d, d.changes\n  LEFT JOIN four_keys.changes c ON changes = c.change_id\n  WHERE d.time_created > TIMESTAMP_MILLIS($__from) and d.time_created <= TIMESTAMP_MILLIS($__to)\n  AND\n  (\"$repoFilter\" = my_string OR d.repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR d.business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR d.squads IN ($squads))\n)\n)",
           "refId": "A",
           "sql": {
             "columns": [
@@ -373,8 +367,8 @@
           }
         }
       ],
-      "title": "Daily Deployments",
-      "type": "timeseries"
+      "title": "Lead Time to Change Bucket",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -458,6 +452,111 @@
           "project": "gglobo-deployment-frq-hdg-prd",
           "rawQuery": true,
           "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n, last_three_months AS\n(SELECT\nTIMESTAMP(day) AS day\nFROM\nUNNEST(\nGENERATE_DATE_ARRAY(\n    DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), CURRENT_DATE(),\n    INTERVAL 1 DAY)) AS day\n# FROM the start of the data\nWHERE day > (SELECT date(min(time_created)) FROM four_keys.events_raw)\n)\n\nSELECT\nCASE WHEN daily THEN \"Daily\" \n     WHEN weekly THEN \"Weekly\" \n      # If at least one per month, then Monthly\n     WHEN PERCENTILE_CONT(monthly_deploys, 0.5) OVER () >= 1 THEN  \"Monthly\" \n     ELSE \"Yearly\"\n     END as deployment_frequency\nFROM (\n  SELECT\n  # If the median number of days per week is more than 3, then Daily\n  PERCENTILE_CONT(days_deployed, 0.5) OVER() >= 3 AS daily,\n  # If most weeks have a deployment, then Weekly\n  PERCENTILE_CONT(week_deployed, 0.5) OVER() >= 1 AS weekly,\n\n  # Count the number of deployments per month.  \n  # Cannot mix aggregate and analytic functions, so calculate the median in the outer select statement\n  SUM(week_deployed) OVER(partition by TIMESTAMP_TRUNC(week, MONTH)) monthly_deploys\n  FROM(\n      SELECT\n      TIMESTAMP_TRUNC(last_three_months.day, WEEK) as week,\n      MAX(if(deployments.day is not null, 1, 0)) as week_deployed,\n      COUNT(distinct deployments.day) as days_deployed\n      FROM last_three_months\n      LEFT JOIN(\n        SELECT\n        TIMESTAMP_TRUNC(time_created, DAY) AS day,\n        deploy_id\n        FROM four_keys.deployments WHERE( (\"$repoFilter\" = my_string OR repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR squads IN ($squads)))\n    )  deployments ON deployments.day = last_three_months.day\n        \n        \n      GROUP BY week)\n )\nLIMIT 1",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Deployment Frequency",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-bigquery-datasource",
+        "uid": "P8042CABD7873BED6"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "Daily": {
+                  "color": "purple",
+                  "index": 0,
+                  "text": "Elite Performance"
+                },
+                "Monthly": {
+                  "color": "yellow",
+                  "index": 2
+                },
+                "Weekly": {
+                  "color": "green",
+                  "index": 1
+                },
+                "Yearly": {
+                  "color": "red",
+                  "index": 3
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 13,
+        "y": 6
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^deployment_frequency$/",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.2.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-bigquery-datasource",
+            "uid": "P8042CABD7873BED6"
+          },
+          "editorMode": "code",
+          "format": 1,
+          "location": "US",
+          "project": "gglobo-deployment-frq-hdg-prd",
+          "rawQuery": true,
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n, last_three_months AS\n(SELECT\nTIMESTAMP(day) AS day\nFROM\nUNNEST(\nGENERATE_DATE_ARRAY(\n    EXTRACT(DATE FROM TIMESTAMP_MILLIS($__from)), EXTRACT(DATE FROM TIMESTAMP_MILLIS($__to)),\n    INTERVAL 1 DAY)) AS day\n# FROM the start of the data\nWHERE day > (SELECT date(min(time_created)) FROM four_keys.events_raw)\n)\n\nSELECT\nCASE WHEN daily THEN \"Daily\" \n     WHEN weekly THEN \"Weekly\" \n      # If at least one per month, then Monthly\n     WHEN PERCENTILE_CONT(monthly_deploys, 0.5) OVER () >= 1 THEN  \"Monthly\" \n     ELSE \"Yearly\"\n     END as deployment_frequency\nFROM (\n  SELECT\n  # If the median number of days per week is more than 3, then Daily\n  PERCENTILE_CONT(days_deployed, 0.5) OVER() >= 3 AS daily,\n  # If most weeks have a deployment, then Weekly\n  PERCENTILE_CONT(week_deployed, 0.5) OVER() >= 1 AS weekly,\n\n  # Count the number of deployments per month.  \n  # Cannot mix aggregate and analytic functions, so calculate the median in the outer select statement\n  SUM(week_deployed) OVER(partition by TIMESTAMP_TRUNC(week, MONTH)) monthly_deploys\n  FROM(\n      SELECT\n      TIMESTAMP_TRUNC(last_three_months.day, WEEK) as week,\n      MAX(if(deployments.day is not null, 1, 0)) as week_deployed,\n      COUNT(distinct deployments.day) as days_deployed\n      FROM last_three_months\n      LEFT JOIN(\n        SELECT\n        TIMESTAMP_TRUNC(time_created, DAY) AS day,\n        deploy_id\n        FROM four_keys.deployments WHERE( (\"$repoFilter\" = my_string OR repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR squads IN ($squads)))\n    )  deployments ON deployments.day = last_three_months.day\n        \n        \n      GROUP BY week)\n )\nLIMIT 1",
           "refId": "A",
           "sql": {
             "columns": [
@@ -707,54 +806,45 @@
         "type": "grafana-bigquery-datasource",
         "uid": "P8042CABD7873BED6"
       },
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
+          "mappings": [
+            {
+              "options": {
+                "One day": {
+                  "color": "green",
+                  "index": 0
+                },
+                "One month": {
+                  "color": "red",
+                  "index": 2
+                },
+                "One week": {
+                  "color": "yellow",
+                  "index": 1
+                },
+                "One year": {
+                  "color": "red",
+                  "index": 4
+                },
+                "Six months": {
+                  "color": "red",
+                  "index": 3
+                }
+              },
+              "type": "value"
             }
-          },
-          "mappings": [],
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           }
@@ -762,24 +852,28 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 10,
-        "w": 9,
+        "h": 5,
+        "w": 4,
         "x": 13,
         "y": 11
       },
-      "id": 10,
+      "id": 14,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^med_time_to_resolve$/",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "10.2.2",
       "targets": [
         {
           "datasource": {
@@ -791,7 +885,7 @@
           "location": "US",
           "project": "gglobo-deployment-frq-hdg-prd",
           "rawQuery": true,
-          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\nSELECT\nTIMESTAMP_TRUNC(d.time_created, DAY) as day,\n  IF(COUNT(DISTINCT change_id) = 0,0, SUM(IF(i.incident_id is NULL, 0, 1)) / COUNT(DISTINCT deploy_id)) as change_fail_rate\nFROM four_keys.deployments d, d.changes\nLEFT JOIN four_keys.changes c ON changes = c.change_id\nLEFT JOIN(SELECT\n        DISTINCT incident_id,\n        change,\n        time_resolved\n        FROM four_keys.incidents i,\n        i.changes change) i ON i.change = changes\nwhere    \n(\"$repoFilter\" = my_string OR d.repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR d.business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR d.squads IN ($squads))\n\nGROUP BY day",
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\n\nSELECT\nCASE WHEN med_time_to_resolve < 24  then \"One day\"\n     WHEN med_time_to_resolve < 168  then \"One week\"\n     WHEN med_time_to_resolve < 730  then \"One month\"\n     WHEN med_time_to_resolve < 730 * 6 then \"Six months\"\n     ELSE \"One year\"\n     END as med_time_to_resolve,\nFROM (\n  SELECT\n  #### Median time to resolve\n  PERCENTILE_CONT(\n    TIMESTAMP_DIFF(time_resolved, time_created, HOUR), 0.5)\n    OVER() as med_time_to_resolve,\n  FROM four_keys.incidents\n  # Limit to 3 months\n  WHERE time_created > TIMESTAMP_MILLIS($__from) AND time_created <= TIMESTAMP_MILLIS($__to)  AND\n  (\"$repoFilter\" = my_string OR repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR squads IN ($squads))\n  )\n\nLIMIT 1",
           "refId": "A",
           "sql": {
             "columns": [
@@ -812,8 +906,8 @@
           }
         }
       ],
-      "title": "Daily Change Failure Rate",
-      "type": "timeseries"
+      "title": "Median Time to Restore Services",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -914,9 +1008,336 @@
       ],
       "title": "Change Failure Rate",
       "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-bigquery-datasource",
+        "uid": "P8042CABD7873BED6"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0-15%": {
+                  "color": "green",
+                  "index": 0
+                },
+                "16-45%": {
+                  "color": "yellow",
+                  "index": 1
+                },
+                "46-60%": {
+                  "color": "red",
+                  "index": 2
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 13,
+        "y": 16
+      },
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^change_fail_rate$/",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.2.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-bigquery-datasource",
+            "uid": "P8042CABD7873BED6"
+          },
+          "editorMode": "code",
+          "format": 1,
+          "location": "US",
+          "project": "gglobo-deployment-frq-hdg-prd",
+          "rawQuery": true,
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\n\nSELECT\nCASE WHEN change_fail_rate <= .15 then \"0-15%\"\n     WHEN change_fail_rate < .46 then \"16-45%\"\n     ELSE \"46-60%\" end as change_fail_rate\nFROM \n (SELECT\n    IF(COUNT(DISTINCT change_id) = 0,0, SUM(IF(i.incident_id is NULL, 0, 1)) / COUNT(DISTINCT deploy_id)) as change_fail_rate\n  FROM four_keys.deployments d, d.changes\n  LEFT JOIN four_keys.changes c ON changes = c.change_id\n  LEFT JOIN(SELECT\n          incident_id,\n          change,\n          time_resolved\n          FROM four_keys.incidents i,\n          i.changes change) i ON i.change = changes\n  # Limit to 3 months\n  WHERE d.time_created > TIMESTAMP_MILLIS($__from) AND d.time_created <=TIMESTAMP_MILLIS($__to)\n    AND\n   (\"$repoFilter\" = my_string OR d.repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR d.business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR d.squads IN ($squads))\n  )\nLIMIT 1",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Change Failure Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-bigquery-datasource",
+        "uid": "P8042CABD7873BED6"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 9,
+        "x": 13,
+        "y": 21
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-bigquery-datasource",
+            "uid": "P8042CABD7873BED6"
+          },
+          "editorMode": "code",
+          "format": 1,
+          "location": "US",
+          "project": "gglobo-deployment-frq-hdg-prd",
+          "rawQuery": true,
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\nSELECT\nTIMESTAMP_TRUNC(time_created, DAY) AS day,\nCOUNT(distinct deploy_id) AS deployments\nFROM\nfour_keys.deployments\nWHERE   \n  (\"$repoFilter\" = my_string OR repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR squads IN ($squads))\n\nGROUP BY day\nORDER BY day",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Daily Deployments",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-bigquery-datasource",
+        "uid": "P8042CABD7873BED6"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 9,
+        "x": 13,
+        "y": 31
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-bigquery-datasource",
+            "uid": "P8042CABD7873BED6"
+          },
+          "editorMode": "code",
+          "format": 1,
+          "location": "US",
+          "project": "gglobo-deployment-frq-hdg-prd",
+          "rawQuery": true,
+          "rawSql": "DECLARE my_string STRING DEFAULT \"$repoFilter\";\n\nWITH split_values AS (\n  SELECT TRIM(value) AS value\n  FROM UNNEST(SPLIT(REPLACE(my_string, \"'\", \"\"), ',')) AS value\n)\n\nSELECT\nTIMESTAMP_TRUNC(d.time_created, DAY) as day,\n  IF(COUNT(DISTINCT change_id) = 0,0, SUM(IF(i.incident_id is NULL, 0, 1)) / COUNT(DISTINCT deploy_id)) as change_fail_rate\nFROM four_keys.deployments d, d.changes\nLEFT JOIN four_keys.changes c ON changes = c.change_id\nLEFT JOIN(SELECT\n        DISTINCT incident_id,\n        change,\n        time_resolved\n        FROM four_keys.incidents i,\n        i.changes change) i ON i.change = changes\nwhere    \n(\"$repoFilter\" = my_string OR d.repo_name IN (SELECT value FROM split_values))\n  and \n  (\"$business_unit\" = 'All' OR d.business_units IN ($business_unit))\n    and \n  (\"$squads\" = 'All' OR d.squads IN ($squads))\n\nGROUP BY day",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Daily Change Failure Rate",
+      "type": "timeseries"
     }
   ],
-  "refresh": "",
+  "refresh": false,
   "schemaVersion": 38,
   "tags": [],
   "templating": {
@@ -924,7 +1345,7 @@
       {
         "allValue": "All",
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "All"
           ],
@@ -984,12 +1405,12 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
-            "seguroseplanos"
+            "All"
           ],
           "value": [
-            "seguroseplanos"
+            "$__all"
           ]
         },
         "datasource": {
@@ -1044,7 +1465,7 @@
       },
       {
         "current": {
-          "selected": true,
+          "selected": false,
           "text": [
             "All"
           ],
@@ -1105,8 +1526,8 @@
     ]
   },
   "time": {
-    "from": "now-90d",
-    "to": "now"
+    "from": "2023-11-01T00:00:00.000Z",
+    "to": "2023-11-30T00:00:00.000Z"
   },
   "timepicker": {
     "hidden": false,
@@ -1138,6 +1559,6 @@
   "timezone": "utc",
   "title": "Four Keys AME",
   "uid": "yVtwoQ4nka",
-  "version": 15,
+  "version": 6,
   "weekStart": ""
 }
